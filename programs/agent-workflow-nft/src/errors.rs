@@ -4,8 +4,6 @@ use anchor_lang::prelude::*;
 pub enum ErrorCode {
     #[msg("requiredSkills exceeds the maximum allowed")]
     TooManyRequiredSkills,
-    #[msg("requiredSkills cannot be empty for a workflow")]
-    EmptyRequiredSkills,
     #[msg("buyer does not hold every required skill (missing at least one)")]
     MissingRequiredSkill,
     #[msg("the provided skill token accounts do not match the required skills")]

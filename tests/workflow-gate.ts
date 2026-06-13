@@ -42,7 +42,7 @@ const PROGRAM_ID = new PublicKey("3ptXj4yuaQG51WTA3SZZ37jGvYFgMhgXnSKWJLASJNkt")
 const SKILLS_COLLECTION = new PublicKey("4exdqNEcXixiMzenEBts2cE7qLmMvcVtHCjsZUGBm4Gt");
 const RPC = "https://api.devnet.solana.com";
 
-const WORKFLOW_SEED = Buffer.from("workflow");
+const ITEM_SEED = Buffer.from("item");
 const MINT_AUTH_SEED = Buffer.from("mint-auth");
 
 function loadPayer(): Keypair {
@@ -64,7 +64,7 @@ describe("workflow-gate (devnet)", function () {
 
   let skillA: PublicKey;
   let skillB: PublicKey;
-  let workflowMint: PublicKey;
+  let itemMint: PublicKey;
   let mintAuthPda: PublicKey;
   const buyer = payer; // the holder; a fresh keypair plays the "missing skill" role
 
@@ -77,9 +77,9 @@ describe("workflow-gate (devnet)", function () {
 
   it("mints a workflow whose authority is the program PDA", async () => {
     const wf = Keypair.generate();
-    workflowMint = wf.publicKey;
+    itemMint = wf.publicKey;
     [mintAuthPda] = PublicKey.findProgramAddressSync(
-      [MINT_AUTH_SEED, workflowMint.toBuffer()],
+      [MINT_AUTH_SEED, itemMint.toBuffer()],
       PROGRAM_ID,
     );
     const len = getMintLen([]);
@@ -87,26 +87,26 @@ describe("workflow-gate (devnet)", function () {
     const tx = new Transaction().add(
       SystemProgram.createAccount({
         fromPubkey: payer.publicKey,
-        newAccountPubkey: workflowMint,
+        newAccountPubkey: itemMint,
         space: len,
         lamports,
         programId: TOKEN_2022_PROGRAM_ID,
       }),
-      createInitializeMintInstruction(workflowMint, 0, mintAuthPda, null, TOKEN_2022_PROGRAM_ID),
+      createInitializeMintInstruction(itemMint, 0, mintAuthPda, null, TOKEN_2022_PROGRAM_ID),
     );
     await provider.sendAndConfirm(tx, [wf]);
   });
 
   it("publish_workflow stores the prerequisites", async () => {
     const [config] = PublicKey.findProgramAddressSync(
-      [WORKFLOW_SEED, workflowMint.toBuffer()],
+      [ITEM_SEED, itemMint.toBuffer()],
       PROGRAM_ID,
     );
     await program.methods
-      .publishWorkflow([skillA, skillB], new BN(0))
+      .publishItem([skillA, skillB], new BN(0))
       .accounts({
         creator: payer.publicKey,
-        workflowMint,
+        itemMint,
         config,
         systemProgram: SystemProgram.programId,
       })
@@ -115,13 +115,13 @@ describe("workflow-gate (devnet)", function () {
         { pubkey: skillB, isWritable: false, isSigner: false },
       ])
       .rpc();
-    const cfg = await (program.account as any).workflowConfig.fetch(config);
+    const cfg = await (program.account as any).itemConfig.fetch(config);
     assert.equal(cfg.requiredSkills.length, 2);
   });
 
   it("buy_workflow succeeds for the holder", async () => {
-    const buyerAta = getAssociatedTokenAddressSync(workflowMint, buyer.publicKey, false, TOKEN_2022_PROGRAM_ID);
-    await ensureAta(buyerAta, buyer.publicKey, workflowMint);
+    const buyerAta = getAssociatedTokenAddressSync(itemMint, buyer.publicKey, false, TOKEN_2022_PROGRAM_ID);
+    await ensureAta(buyerAta, buyer.publicKey, itemMint);
     const sig = await buy(buyer.publicKey, [skillA, skillB], buyerAta);
     assert.ok(sig);
   });
@@ -133,21 +133,21 @@ describe("workflow-gate (devnet)", function () {
     await mintOne(skillA, stranger.publicKey);
     const strangerAtaA = getAssociatedTokenAddressSync(skillA, stranger.publicKey, false, TOKEN_2022_PROGRAM_ID);
     const strangerAtaB = getAssociatedTokenAddressSync(skillB, stranger.publicKey, false, TOKEN_2022_PROGRAM_ID);
-    const wfAta = getAssociatedTokenAddressSync(workflowMint, stranger.publicKey, false, TOKEN_2022_PROGRAM_ID);
-    await ensureAta(wfAta, stranger.publicKey, workflowMint, stranger);
+    const wfAta = getAssociatedTokenAddressSync(itemMint, stranger.publicKey, false, TOKEN_2022_PROGRAM_ID);
+    await ensureAta(wfAta, stranger.publicKey, itemMint, stranger);
 
     let threw = false;
     try {
-      const [config] = PublicKey.findProgramAddressSync([WORKFLOW_SEED, workflowMint.toBuffer()], PROGRAM_ID);
+      const [config] = PublicKey.findProgramAddressSync([ITEM_SEED, itemMint.toBuffer()], PROGRAM_ID);
       await program.methods
-        .buyWorkflow()
+        .buyItem()
         .accounts({
           buyer: stranger.publicKey,
           creator: payer.publicKey,
           config,
-          workflowMint,
+          itemMint,
           mintAuthority: mintAuthPda,
-          buyerWorkflowAta: wfAta,
+          buyerItemAta: wfAta,
           tokenProgram: TOKEN_2022_PROGRAM_ID,
           systemProgram: SystemProgram.programId,
         })
@@ -224,21 +224,21 @@ describe("workflow-gate (devnet)", function () {
   }
 
   async function buy(buyerPk: PublicKey, skills: PublicKey[], wfAta: PublicKey) {
-    const [config] = PublicKey.findProgramAddressSync([WORKFLOW_SEED, workflowMint.toBuffer()], PROGRAM_ID);
+    const [config] = PublicKey.findProgramAddressSync([ITEM_SEED, itemMint.toBuffer()], PROGRAM_ID);
     const remaining = skills.map((m) => ({
       pubkey: getAssociatedTokenAddressSync(m, buyerPk, false, TOKEN_2022_PROGRAM_ID),
       isWritable: false,
       isSigner: false,
     }));
     return program.methods
-      .buyWorkflow()
+      .buyItem()
       .accounts({
         buyer: buyerPk,
         creator: payer.publicKey,
         config,
-        workflowMint,
+        itemMint,
         mintAuthority: mintAuthPda,
-        buyerWorkflowAta: wfAta,
+        buyerItemAta: wfAta,
         tokenProgram: TOKEN_2022_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
       })
