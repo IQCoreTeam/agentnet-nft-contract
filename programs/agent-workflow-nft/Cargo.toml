@@ -1,0 +1,23 @@
+[package]
+name = "agent-workflow-nft"
+version = "0.1.0"
+description = "AgentNet workflow NFT — on-chain gated minting (holders of all required skills only)"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "agent_workflow_nft"
+
+[features]
+default = []
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
+anchor-debug = []
+
+[dependencies]
+anchor-lang = { version = "0.32.1", features = ["init-if-needed"] }
+anchor-spl = "0.32.1"
+spl-token-group-interface = "0.6.0"
