@@ -1,5 +1,6 @@
 use super::accounts::MAX_REQUIRED_SKILLS;
 use super::contexts::{BuyItem, PublishItem, MINT_AUTH_SEED};
+use crate::constants::{FEE_BPS, FEE_TREASURY};
 use crate::errors::ErrorCode;
 use crate::helpers::verify_collection_member;
 use anchor_lang::prelude::*;
@@ -89,18 +90,46 @@ pub fn buy_item(ctx: Context<BuyItem>) -> Result<()> {
         require!(amount >= 1, ErrorCode::MissingRequiredSkill);
     }
 
-    // ── pay the creator (priced buy) ─────────────────────────────────────────
+    // ── pay out (priced buy): protocol fee + creator, both OUT of the price ───
+    // The buyer pays exactly `price`. FEE_BPS goes to the fixed treasury, the
+    // remainder to the creator. The treasury account is required to equal the
+    // FEE_TREASURY constant, so the fee can't be skipped or redirected.
     if config.price > 0 {
-        system_program::transfer(
-            CpiContext::new(
-                ctx.accounts.system_program.to_account_info(),
-                system_program::Transfer {
-                    from: ctx.accounts.buyer.to_account_info(),
-                    to: ctx.accounts.creator.to_account_info(),
-                },
-            ),
-            config.price,
-        )?;
+        require_keys_eq!(
+            ctx.accounts.fee_treasury.key(),
+            FEE_TREASURY,
+            ErrorCode::WrongFeeTreasury
+        );
+
+        // 6.9% of the price (integer math; the creator gets the rounding remainder).
+        let fee = (config.price as u128 * FEE_BPS as u128 / 10_000u128) as u64;
+        let to_creator = config.price - fee;
+
+        if fee > 0 {
+            system_program::transfer(
+                CpiContext::new(
+                    ctx.accounts.system_program.to_account_info(),
+                    system_program::Transfer {
+                        from: ctx.accounts.buyer.to_account_info(),
+                        to: ctx.accounts.fee_treasury.to_account_info(),
+                    },
+                ),
+                fee,
+            )?;
+        }
+
+        if to_creator > 0 {
+            system_program::transfer(
+                CpiContext::new(
+                    ctx.accounts.system_program.to_account_info(),
+                    system_program::Transfer {
+                        from: ctx.accounts.buyer.to_account_info(),
+                        to: ctx.accounts.creator.to_account_info(),
+                    },
+                ),
+                to_creator,
+            )?;
+        }
     }
 
     // ── mint 1 item token to the buyer (PDA authority) ──────────────────────

@@ -10,3 +10,14 @@ use anchor_lang::prelude::*;
 /// regardless of how many skills exist.
 pub const OFFICIAL_SKILLS_COLLECTION: Pubkey =
     pubkey!("4exdqNEcXixiMzenEBts2cE7qLmMvcVtHCjsZUGBm4Gt");
+
+/// The protocol fee treasury. On every priced buy, FEE_BPS of the price is
+/// transferred here and the rest goes to the creator (the fee comes OUT of the
+/// price — the buyer pays exactly `price`, the creator nets `price - fee`). The
+/// treasury is a fixed constant and the buy instruction requires the passed
+/// account to equal it, so the fee can't be redirected.
+pub const FEE_TREASURY: Pubkey =
+    pubkey!("EWNSTD8tikwqHMcRNuuNbZrnYJUiJdKq9UXLXSEU4wZ1");
+
+/// Protocol fee, in basis points (1 bps = 0.01%). 690 bps = 6.9%.
+pub const FEE_BPS: u64 = 690;

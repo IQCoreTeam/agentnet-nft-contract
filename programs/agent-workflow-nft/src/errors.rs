@@ -20,4 +20,6 @@ pub enum ErrorCode {
     DuplicateRequiredSkill,
     #[msg("the buyer already owns this workflow")]
     AlreadyOwned,
+    #[msg("the provided fee treasury account does not match the protocol treasury")]
+    WrongFeeTreasury,
 }

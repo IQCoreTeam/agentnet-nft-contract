@@ -42,9 +42,15 @@ pub struct BuyItem<'info> {
     #[account(mut)]
     pub buyer: Signer<'info>,
 
-    /// CHECK: paid the price; matched against config.creator in the handler.
+    /// CHECK: paid the price (minus fee); matched against config.creator in the handler.
     #[account(mut)]
     pub creator: UncheckedAccount<'info>,
+
+    /// The protocol fee treasury. The handler requires this to equal FEE_TREASURY,
+    /// so the fee can't be redirected. Receives FEE_BPS of the price on a priced buy.
+    /// CHECK: matched against the FEE_TREASURY constant in the handler.
+    #[account(mut)]
+    pub fee_treasury: UncheckedAccount<'info>,
 
     #[account(
         seeds = [ITEM_SEED, item_mint.key().as_ref()],

@@ -40,6 +40,8 @@ const IDL = JSON.parse(
 
 const PROGRAM_ID = new PublicKey("3ptXj4yuaQG51WTA3SZZ37jGvYFgMhgXnSKWJLASJNkt");
 const SKILLS_COLLECTION = new PublicKey("4exdqNEcXixiMzenEBts2cE7qLmMvcVtHCjsZUGBm4Gt");
+const FEE_TREASURY = new PublicKey("EWNSTD8tikwqHMcRNuuNbZrnYJUiJdKq9UXLXSEU4wZ1");
+const FEE_BPS = 690; // 6.9%
 const RPC = "https://api.devnet.solana.com";
 
 const ITEM_SEED = Buffer.from("item");
@@ -144,6 +146,7 @@ describe("workflow-gate (devnet)", function () {
         .accounts({
           buyer: stranger.publicKey,
           creator: payer.publicKey,
+          feeTreasury: FEE_TREASURY,
           config,
           itemMint,
           mintAuthority: mintAuthPda,
@@ -161,6 +164,77 @@ describe("workflow-gate (devnet)", function () {
       threw = true;
     }
     assert.isTrue(threw, "buy must fail when a required skill is missing");
+  });
+
+  // A priced skill (no prerequisites): the fee comes OUT of the price — 6.9% to the
+  // treasury, the rest to the creator, buyer pays exactly `price`. And a buy that
+  // passes the wrong treasury must revert.
+  it("buy splits the price: 6.9% to treasury, the rest to creator", async () => {
+    const price = 10_000_000; // 0.01 SOL
+    const fee = Math.floor((price * FEE_BPS) / 10_000);
+    const toCreator = price - fee;
+
+    // a fresh priced skill mint (empty required_skills → no gate)
+    const skillKp = Keypair.generate();
+    const pricedMint = skillKp.publicKey;
+    const [pricedAuth] = PublicKey.findProgramAddressSync([MINT_AUTH_SEED, pricedMint.toBuffer()], PROGRAM_ID);
+    const [pricedConfig] = PublicKey.findProgramAddressSync([ITEM_SEED, pricedMint.toBuffer()], PROGRAM_ID);
+    const len = getMintLen([]);
+    const lamports = await conn.getMinimumBalanceForRentExemption(len);
+    await provider.sendAndConfirm(
+      new Transaction().add(
+        SystemProgram.createAccount({
+          fromPubkey: payer.publicKey, newAccountPubkey: pricedMint, space: len, lamports, programId: TOKEN_2022_PROGRAM_ID,
+        }),
+        createInitializeMintInstruction(pricedMint, 0, pricedAuth, null, TOKEN_2022_PROGRAM_ID),
+      ),
+      [skillKp],
+    );
+    await program.methods
+      .publishItem([], new BN(price))
+      .accounts({ creator: payer.publicKey, itemMint: pricedMint, config: pricedConfig, systemProgram: SystemProgram.programId })
+      .remainingAccounts([])
+      .rpc();
+    // The creator is `payer` (also gas payer), so we assert on the treasury — an
+    // independent account whose only inflow here is the fee — for an exact delta.
+
+    const buyerKp = Keypair.generate();
+    await fund(buyerKp.publicKey);
+    // top up enough to cover price + rent + gas
+    await provider.sendAndConfirm(
+      new Transaction().add(SystemProgram.transfer({ fromPubkey: payer.publicKey, toPubkey: buyerKp.publicKey, lamports: price + 20_000_000 })),
+      [],
+    );
+    const buyerAta = getAssociatedTokenAddressSync(pricedMint, buyerKp.publicKey, false, TOKEN_2022_PROGRAM_ID);
+    await ensureAta(buyerAta, buyerKp.publicKey, pricedMint, buyerKp);
+
+    const treasuryBefore = (await conn.getAccountInfo(FEE_TREASURY))?.lamports ?? 0;
+
+    // wrong treasury → must revert
+    let rejected = false;
+    try {
+      await program.methods.buyItem()
+        .accounts({
+          buyer: buyerKp.publicKey, creator: payer.publicKey, feeTreasury: Keypair.generate().publicKey,
+          config: pricedConfig, itemMint: pricedMint, mintAuthority: pricedAuth, buyerItemAta: buyerAta,
+          tokenProgram: TOKEN_2022_PROGRAM_ID, systemProgram: SystemProgram.programId,
+        })
+        .remainingAccounts([]).signers([buyerKp]).rpc();
+    } catch { rejected = true; }
+    assert.isTrue(rejected, "buy with the wrong fee treasury must revert");
+
+    // correct treasury → succeeds, treasury gains exactly the fee
+    await program.methods.buyItem()
+      .accounts({
+        buyer: buyerKp.publicKey, creator: payer.publicKey, feeTreasury: FEE_TREASURY,
+        config: pricedConfig, itemMint: pricedMint, mintAuthority: pricedAuth, buyerItemAta: buyerAta,
+        tokenProgram: TOKEN_2022_PROGRAM_ID, systemProgram: SystemProgram.programId,
+      })
+      .remainingAccounts([]).signers([buyerKp]).rpc();
+
+    const treasuryAfter = (await conn.getAccountInfo(FEE_TREASURY))?.lamports ?? 0;
+    assert.equal(treasuryAfter - treasuryBefore, fee, "treasury must gain exactly 6.9% of the price");
+    assert.isAbove(toCreator, fee, "sanity: creator share is the larger part");
   });
 
   // ── helpers ──────────────────────────────────────────────────────────────
@@ -235,6 +309,7 @@ describe("workflow-gate (devnet)", function () {
       .accounts({
         buyer: buyerPk,
         creator: payer.publicKey,
+        feeTreasury: FEE_TREASURY,
         config,
         itemMint,
         mintAuthority: mintAuthPda,
