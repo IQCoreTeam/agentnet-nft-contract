@@ -15,7 +15,9 @@ pub struct PublishItem<'info> {
     pub creator: Signer<'info>,
 
     /// The item NFT mint. Its mint authority MUST already be the mint-auth PDA
-    /// (set when the mint was created), so only this program can issue it.
+    /// (set when the mint was created), so only this program can issue it. `mut`
+    /// because publishing mints 1 copy to the creator (supply 0 -> 1).
+    #[account(mut)]
     pub item_mint: InterfaceAccount<'info, Mint>,
 
     #[account(
@@ -27,6 +29,23 @@ pub struct PublishItem<'info> {
     )]
     pub config: Account<'info, ItemConfig>,
 
+    /// The program's PDA that holds the item mint authority (same one buy_item uses).
+    /// CHECK: validated by seeds; used only as the mint authority signer.
+    #[account(
+        seeds = [MINT_AUTH_SEED, item_mint.key().as_ref()],
+        bump,
+    )]
+    pub mint_authority: UncheckedAccount<'info>,
+
+    /// The creator's token account for the item mint — receives the 1 self-owned copy.
+    #[account(
+        mut,
+        token::mint = item_mint,
+        token::authority = creator,
+    )]
+    pub creator_item_ata: InterfaceAccount<'info, TokenAccount>,
+
+    pub token_program: Interface<'info, TokenInterface>,
     pub system_program: Program<'info, System>,
 }
 

@@ -48,6 +48,28 @@ pub fn publish_item(
     config.creator = ctx.accounts.creator.key();
     config.price = price;
     config.required_skills = required_skills;
+
+    // ── mint 1 item token to the creator (PDA authority) ────────────────────
+    // The author owns the first copy of what they publish (supply 0 -> 1), so they
+    // can use/note their own skill and the count is honest. No fee here — this is a
+    // self-mint at publish, not a priced buy_item.
+    let item_mint_key = ctx.accounts.item_mint.key();
+    let auth_bump = ctx.bumps.mint_authority;
+    let signer_seeds: &[&[&[u8]]] = &[&[MINT_AUTH_SEED, item_mint_key.as_ref(), &[auth_bump]]];
+
+    token_interface::mint_to(
+        CpiContext::new_with_signer(
+            ctx.accounts.token_program.to_account_info(),
+            MintTo {
+                mint: ctx.accounts.item_mint.to_account_info(),
+                to: ctx.accounts.creator_item_ata.to_account_info(),
+                authority: ctx.accounts.mint_authority.to_account_info(),
+            },
+            signer_seeds,
+        ),
+        1,
+    )?;
+
     Ok(())
 }
 
