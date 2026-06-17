@@ -6,6 +6,11 @@ use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
 pub const ITEM_SEED: &[u8] = b"item";
 /// Seed for the program's mint-authority PDA: ["mint-auth", item_mint].
 pub const MINT_AUTH_SEED: &[u8] = b"mint-auth";
+/// Seed for the program's collection-authority PDA: ["collection-auth"]. This one
+/// global PDA is the update authority of BOTH official TokenGroups (skills and
+/// workflows), so the program — not an off-chain minter key — signs member
+/// enrollment when an item is published.
+pub const COLLECTION_AUTH_SEED: &[u8] = b"collection-auth";
 
 /// publish_item — create the on-chain config (creator, price, required_skills),
 /// and record the item mint whose authority is the program's mint-auth PDA.
@@ -44,6 +49,22 @@ pub struct PublishItem<'info> {
         token::authority = creator,
     )]
     pub creator_item_ata: InterfaceAccount<'info, TokenAccount>,
+
+    /// The official TokenGroup the item joins — the skills OR the workflows
+    /// collection mint. `mut`: InitializeMember bumps the group's member count.
+    /// The handler requires this to be one of the two official collections.
+    /// CHECK: a Token-2022 group mint; key validated in the handler.
+    #[account(mut)]
+    pub group: UncheckedAccount<'info>,
+
+    /// The program PDA that owns both official collections' group update authority.
+    /// Signs InitializeMember so membership is stamped on-chain with no off-chain key.
+    /// CHECK: validated by seeds; signer only.
+    #[account(
+        seeds = [COLLECTION_AUTH_SEED],
+        bump,
+    )]
+    pub collection_authority: UncheckedAccount<'info>,
 
     pub token_program: Interface<'info, TokenInterface>,
     pub system_program: Program<'info, System>,

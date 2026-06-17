@@ -1,9 +1,12 @@
 use super::accounts::MAX_REQUIRED_SKILLS;
-use super::contexts::{BuyItem, PublishItem, MINT_AUTH_SEED};
-use crate::constants::{FEE_BPS, FEE_TREASURY};
+use super::contexts::{BuyItem, PublishItem, COLLECTION_AUTH_SEED, MINT_AUTH_SEED};
+use crate::constants::{
+    FEE_BPS, FEE_TREASURY, OFFICIAL_SKILLS_COLLECTION, OFFICIAL_WORKFLOWS_COLLECTION,
+};
 use crate::errors::ErrorCode;
 use crate::helpers::verify_collection_member;
 use anchor_lang::prelude::*;
+use anchor_lang::solana_program::program::invoke_signed;
 use anchor_lang::system_program;
 use anchor_spl::token_2022::spl_token_2022::ID as TOKEN_2022_ID;
 use anchor_spl::token_interface::{self, MintTo};
@@ -49,12 +52,48 @@ pub fn publish_item(
     config.price = price;
     config.required_skills = required_skills;
 
+    // ── enroll the item into its official TokenGroup (PDA-signed) ───────────
+    // Membership powers off-chain discovery (the indexer filters mints by their
+    // TokenGroupMember.group) and the on-chain prerequisite check. The program's
+    // collection-authority PDA is the group update authority, so the stamp needs
+    // NO off-chain minter key; the item's mint-auth PDA co-signs as the member's
+    // mint authority (it owns the mint by publish time). Done before the self-mint
+    // (supply still 0). `group` must be one of the two official collections.
+    let item_mint_key = ctx.accounts.item_mint.key();
+    let auth_bump = ctx.bumps.mint_authority;
+    let group_key = ctx.accounts.group.key();
+    require!(
+        group_key == OFFICIAL_SKILLS_COLLECTION || group_key == OFFICIAL_WORKFLOWS_COLLECTION,
+        ErrorCode::NotInOfficialCollection
+    );
+    let coll_auth_bump = ctx.bumps.collection_authority;
+    let enroll_seeds: &[&[&[u8]]] = &[
+        &[MINT_AUTH_SEED, item_mint_key.as_ref(), &[auth_bump]],
+        &[COLLECTION_AUTH_SEED, &[coll_auth_bump]],
+    ];
+    invoke_signed(
+        &spl_token_group_interface::instruction::initialize_member(
+            &TOKEN_2022_ID,
+            &item_mint_key,                           // member
+            &item_mint_key,                           // member_mint
+            &ctx.accounts.mint_authority.key(),       // member_mint_authority (mint-auth PDA)
+            &group_key,                               // group
+            &ctx.accounts.collection_authority.key(), // group_update_authority (PDA)
+        ),
+        &[
+            ctx.accounts.item_mint.to_account_info(),
+            ctx.accounts.mint_authority.to_account_info(),
+            ctx.accounts.group.to_account_info(),
+            ctx.accounts.collection_authority.to_account_info(),
+            ctx.accounts.token_program.to_account_info(),
+        ],
+        enroll_seeds,
+    )?;
+
     // ── mint 1 item token to the creator (PDA authority) ────────────────────
     // The author owns the first copy of what they publish (supply 0 -> 1), so they
     // can use/note their own skill and the count is honest. No fee here — this is a
     // self-mint at publish, not a priced buy_item.
-    let item_mint_key = ctx.accounts.item_mint.key();
-    let auth_bump = ctx.bumps.mint_authority;
     let signer_seeds: &[&[&[u8]]] = &[&[MINT_AUTH_SEED, item_mint_key.as_ref(), &[auth_bump]]];
 
     token_interface::mint_to(
