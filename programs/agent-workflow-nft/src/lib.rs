@@ -8,7 +8,7 @@ pub mod workflow;
 pub use errors::ErrorCode;
 pub use workflow::contexts::*;
 
-declare_id!("3ptXj4yuaQG51WTA3SZZ37jGvYFgMhgXnSKWJLASJNkt");
+declare_id!("8YmcHuCx323RtqC8mzTJ5CH4oVT8mPKJ7xarcPKbdgof");
 
 /// AgentNet item NFT gate (skills AND workflows).
 ///
