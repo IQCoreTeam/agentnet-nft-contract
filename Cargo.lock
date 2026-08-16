@@ -44,7 +44,9 @@ version = "0.1.0"
 dependencies = [
  "anchor-lang",
  "anchor-spl",
+ "spl-pod",
  "spl-token-group-interface",
+ "spl-token-metadata-interface",
 ]
 
 [[package]]

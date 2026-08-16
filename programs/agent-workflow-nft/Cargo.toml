@@ -16,8 +16,12 @@ no-idl = []
 no-log-ix-name = []
 idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build"]
 anchor-debug = []
+# Build with `--features devnet` to target the devnet collections; default is mainnet.
+devnet = []
 
 [dependencies]
 anchor-lang = { version = "0.32.1", features = ["init-if-needed"] }
 anchor-spl = "0.32.1"
 spl-token-group-interface = "0.6.0"
+spl-token-metadata-interface = "0.7.0"
+spl-pod = "0.5.1"

@@ -5,6 +5,9 @@ package_manager = "yarn"
 resolution = true
 skip-lint = false
 
+[programs.mainnet]
+agent_workflow_nft = "8YmcHuCx323RtqC8mzTJ5CH4oVT8mPKJ7xarcPKbdgof"
+
 [programs.localnet]
 agent_workflow_nft = "8YmcHuCx323RtqC8mzTJ5CH4oVT8mPKJ7xarcPKbdgof"
 

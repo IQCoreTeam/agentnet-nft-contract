@@ -6,10 +6,12 @@ use crate::constants::{
 use crate::errors::ErrorCode;
 use crate::helpers::verify_collection_member;
 use anchor_lang::prelude::*;
-use anchor_lang::solana_program::program::invoke_signed;
+use anchor_lang::solana_program::program::{invoke, invoke_signed};
 use anchor_lang::system_program;
 use anchor_spl::token_2022::spl_token_2022::ID as TOKEN_2022_ID;
 use anchor_spl::token_interface::{self, MintTo};
+use spl_pod::optional_keys::OptionalNonZeroPubkey;
+use spl_token_metadata_interface::instruction::update_authority as token_metadata_update_authority;
 
 /// Register an item (skill or workflow) on-chain: store creator, price, and the
 /// prerequisite list in the config PDA.
@@ -107,6 +109,23 @@ pub fn publish_item(
             signer_seeds,
         ),
         1,
+    )?;
+
+    // Freeze the item on-chain: the creator signs publish, so hand its metadata update
+    // authority to the mint-auth PDA here. No instruction signs that PDA for an edit yet,
+    // so the item is immutable and no client can register a still-editable item.
+    invoke(
+        &token_metadata_update_authority(
+            &TOKEN_2022_ID,
+            &item_mint_key,
+            &ctx.accounts.creator.key(),
+            OptionalNonZeroPubkey(ctx.accounts.mint_authority.key()),
+        ),
+        &[
+            ctx.accounts.item_mint.to_account_info(),
+            ctx.accounts.creator.to_account_info(),
+            ctx.accounts.token_program.to_account_info(),
+        ],
     )?;
 
     Ok(())

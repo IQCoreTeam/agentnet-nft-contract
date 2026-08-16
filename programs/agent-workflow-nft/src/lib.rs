@@ -20,6 +20,9 @@ declare_id!("8YmcHuCx323RtqC8mzTJ5CH4oVT8mPKJ7xarcPKbdgof");
 /// One model covers both: an item's `required_skills` is empty for a **skill**
 /// (anyone can buy) and filled for a **workflow** (buyer must hold every listed
 /// skill). The gate loop simply runs zero times for a skill.
+// publish_item hands each item's metadata update authority to the mint-auth PDA, so a
+// published item is immutable (no instruction signs that PDA for an edit yet). An opt-in
+// update path is to be discussed and added in a later upgrade (issue #166).
 #[program]
 pub mod agent_workflow_nft {
     use super::*;

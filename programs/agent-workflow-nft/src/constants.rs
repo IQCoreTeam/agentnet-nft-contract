@@ -8,15 +8,19 @@ use anchor_lang::prelude::*;
 /// Membership is read from each skill mint's TokenGroupMember.group (one account,
 /// one compare) — we never enumerate the collection, so this is O(1) per skill
 /// regardless of how many skills exist.
-pub const OFFICIAL_SKILLS_COLLECTION: Pubkey =
-    pubkey!("BUGHnCh2Pf93tgcxAEfhjd6tUjbY56JrSZdCRXyt7uS5");
+#[cfg(not(feature = "devnet"))]
+pub const OFFICIAL_SKILLS_COLLECTION: Pubkey = pubkey!("BUGHnCh2Pf93tgcxAEfhjd6tUjbY56JrSZdCRXyt7uS5");
+#[cfg(feature = "devnet")]
+pub const OFFICIAL_SKILLS_COLLECTION: Pubkey = pubkey!("5TPKvxXTpPVFrj9MUnFUr6XiGFEdtetsTvwRh6bKQ9Qg");
 
 /// The official AgentNet **workflows** collection mint (Token-2022 TokenGroup).
 /// Workflows enroll here (skills enroll in OFFICIAL_SKILLS_COLLECTION). publish_item
 /// stamps membership on whichever of the two an item belongs to, PDA-signed, so no
 /// off-chain minter key is needed.
-pub const OFFICIAL_WORKFLOWS_COLLECTION: Pubkey =
-    pubkey!("6vmWMRWUD34LEjA8eGefegKe5E38WufveMAe2pTm61i8");
+#[cfg(not(feature = "devnet"))]
+pub const OFFICIAL_WORKFLOWS_COLLECTION: Pubkey = pubkey!("6vmWMRWUD34LEjA8eGefegKe5E38WufveMAe2pTm61i8");
+#[cfg(feature = "devnet")]
+pub const OFFICIAL_WORKFLOWS_COLLECTION: Pubkey = pubkey!("F474VEn2uevpCotRqrPEbZ4XvWyqrqL4iGmNnmp9zvNe");
 
 /// The protocol fee treasury. On every priced buy, FEE_BPS of the price is
 /// transferred here and the rest goes to the creator (the fee comes OUT of the
