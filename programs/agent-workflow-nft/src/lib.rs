@@ -15,7 +15,8 @@ declare_id!("8YmcHuCx323RtqC8mzTJ5CH4oVT8mPKJ7xarcPKbdgof");
 /// We don't deploy our own NFT standard — items are standard Token-2022 mints.
 /// What this program adds is the one thing the standard can't enforce on a mint:
 /// a *conditional* mint. Every item mint's authority is a PDA only this program
-/// can sign for, so the sole way to get a token is `buy_item`.
+/// can sign for. New purchases use `buy_item`; a consented migration can
+/// burn and replace one existing copy without increasing supply.
 ///
 /// One model covers both: an item's `required_skills` is empty for a **skill**
 /// (anyone can buy) and filled for a **workflow** (buyer must hold every listed
@@ -42,5 +43,16 @@ pub mod agent_workflow_nft {
     /// skill), pay the creator if priced, then mint 1 token to the buyer.
     pub fn buy_item(ctx: Context<BuyItem>) -> Result<()> {
         workflow::instructions::buy_item(ctx)
+    }
+
+    /// Opt-in migration of one copy; current holder and recipient consent.
+    pub fn migrate_item(ctx: Context<MigrateItem>) -> Result<()> {
+        workflow::instructions::migrate_item(ctx)
+    }
+
+    /// Change future creator payments without changing the item or its price.
+    pub fn rotate_creator(ctx: Context<RotateCreator>) -> Result<()> {
+        ctx.accounts.config.creator = ctx.accounts.new_creator.key();
+        Ok(())
     }
 }

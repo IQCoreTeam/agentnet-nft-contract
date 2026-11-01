@@ -1,5 +1,5 @@
 use super::accounts::MAX_REQUIRED_SKILLS;
-use super::contexts::{BuyItem, PublishItem, COLLECTION_AUTH_SEED, MINT_AUTH_SEED};
+use super::contexts::{BuyItem, MigrateItem, PublishItem, COLLECTION_AUTH_SEED, MINT_AUTH_SEED};
 use crate::constants::{
     FEE_BPS, FEE_TREASURY, OFFICIAL_SKILLS_COLLECTION, OFFICIAL_WORKFLOWS_COLLECTION,
 };
@@ -8,6 +8,9 @@ use crate::helpers::verify_collection_member;
 use anchor_lang::prelude::*;
 use anchor_lang::solana_program::program::{invoke, invoke_signed};
 use anchor_lang::system_program;
+use anchor_spl::token_2022::spl_token_2022::extension::{
+    non_transferable::NonTransferable, BaseStateWithExtensions, StateWithExtensions,
+};
 use anchor_spl::token_2022::spl_token_2022::ID as TOKEN_2022_ID;
 use anchor_spl::token_interface::{self, MintTo};
 use spl_pod::optional_keys::OptionalNonZeroPubkey;
@@ -131,23 +134,19 @@ pub fn publish_item(
     Ok(())
 }
 
-/// Buy an item. For a workflow, verify ON-CHAIN that the buyer holds every
-/// required skill (a skill has none, so the gate is a no-op). Then pay the creator
-/// (if priced) and mint 1 token to the buyer using the program's mint-auth PDA. A
-/// client cannot bypass this with a raw mint instruction: the mint authority is a
-/// PDA only this program can sign for.
-pub fn buy_item(ctx: Context<BuyItem>) -> Result<()> {
-    let config = &ctx.accounts.config;
-    let required = &config.required_skills;
-
+fn verify_required_skills(
+    required: &[Pubkey],
+    holder: Pubkey,
+    accounts: &[AccountInfo<'_>],
+) -> Result<()> {
     // One skill token account per required skill, same order, in remaining_accounts.
     // (Empty for a skill → no gate.)
     require!(
-        ctx.remaining_accounts.len() == required.len(),
+        accounts.len() == required.len(),
         ErrorCode::SkillAccountMismatch
     );
 
-    let buyer_key = ctx.accounts.buyer.key();
+    let buyer_key = holder;
 
     // ── the prerequisite gate (on-chain) ───────────────────────────────────
     // Each account MUST be a real Token-2022 token account (owner = Token-2022
@@ -155,20 +154,38 @@ pub fn buy_item(ctx: Context<BuyItem>) -> Result<()> {
     // fixed SPL layout (mint[0..32], owner[32..64], amount[64..72]). The skill
     // mints were already verified to be official-collection members at publish,
     // so buy stays cheap: just "real account, right mint, owned by buyer, ≥1".
-    for (required_mint, acc_info) in required.iter().zip(ctx.remaining_accounts.iter()) {
+    for (required_mint, acc_info) in required.iter().zip(accounts.iter()) {
         require_keys_eq!(*acc_info.owner, TOKEN_2022_ID, ErrorCode::NotATokenAccount);
 
         let data = acc_info.try_borrow_data()?;
         require!(data.len() >= 72, ErrorCode::NotATokenAccount);
 
-        let mint = Pubkey::try_from(&data[0..32]).map_err(|_| error!(ErrorCode::SkillAccountMismatch))?;
-        let owner = Pubkey::try_from(&data[32..64]).map_err(|_| error!(ErrorCode::WrongTokenAccountOwner))?;
+        let mint =
+            Pubkey::try_from(&data[0..32]).map_err(|_| error!(ErrorCode::SkillAccountMismatch))?;
+        let owner = Pubkey::try_from(&data[32..64])
+            .map_err(|_| error!(ErrorCode::WrongTokenAccountOwner))?;
         let amount = u64::from_le_bytes(data[64..72].try_into().unwrap());
 
         require_keys_eq!(mint, *required_mint, ErrorCode::SkillAccountMismatch);
         require_keys_eq!(owner, buyer_key, ErrorCode::WrongTokenAccountOwner);
         require!(amount >= 1, ErrorCode::MissingRequiredSkill);
     }
+
+    Ok(())
+}
+
+/// Buy an item. For a workflow, verify ON-CHAIN that the buyer holds every
+/// required skill (a skill has none, so the gate is a no-op). Then pay the creator
+/// (if priced) and mint 1 token to the buyer using the program's mint-auth PDA. A
+/// client cannot bypass this with a raw mint instruction: the mint authority is a
+/// PDA only this program can sign for.
+pub fn buy_item(ctx: Context<BuyItem>) -> Result<()> {
+    let config = &ctx.accounts.config;
+    verify_required_skills(
+        &config.required_skills,
+        ctx.accounts.buyer.key(),
+        ctx.remaining_accounts,
+    )?;
 
     // ── pay out (priced buy): protocol fee + creator, both OUT of the price ───
     // The buyer pays exactly `price`. FEE_BPS goes to the fixed treasury, the
@@ -231,4 +248,65 @@ pub fn buy_item(ctx: Context<BuyItem>) -> Result<()> {
     )?;
 
     Ok(())
+}
+
+pub fn migrate_item(ctx: Context<MigrateItem>) -> Result<()> {
+    verify_required_skills(
+        &ctx.accounts.config.required_skills,
+        ctx.accounts.recipient.key(),
+        ctx.remaining_accounts,
+    )?;
+    require_keys_neq!(
+        ctx.accounts.owner.key(),
+        ctx.accounts.recipient.key(),
+        ErrorCode::SameMigrationOwner
+    );
+    require!(
+        ctx.accounts.source.amount == 1 && ctx.accounts.destination.amount == 0,
+        ErrorCode::InvalidMigrationBalance
+    );
+    require!(
+        ctx.accounts.item_mint.decimals == 0,
+        ErrorCode::InvalidMigrationMint
+    );
+    {
+        let account = ctx.accounts.item_mint.to_account_info();
+        let data = account.try_borrow_data()?;
+        let mint =
+            StateWithExtensions::<anchor_spl::token_2022::spl_token_2022::state::Mint>::unpack(
+                &data,
+            )?;
+        require!(
+            mint.get_extension::<NonTransferable>().is_ok(),
+            ErrorCode::InvalidMigrationMint
+        );
+    }
+
+    // Both CPIs share one transaction: failed issuance rolls the burn back.
+    token_interface::burn_checked(
+        CpiContext::new(
+            ctx.accounts.token_program.to_account_info(),
+            token_interface::BurnChecked {
+                mint: ctx.accounts.item_mint.to_account_info(),
+                from: ctx.accounts.source.to_account_info(),
+                authority: ctx.accounts.owner.to_account_info(),
+            },
+        ),
+        1,
+        0,
+    )?;
+    let mint = ctx.accounts.item_mint.key();
+    let seeds: &[&[&[u8]]] = &[&[MINT_AUTH_SEED, mint.as_ref(), &[ctx.bumps.mint_authority]]];
+    token_interface::mint_to(
+        CpiContext::new_with_signer(
+            ctx.accounts.token_program.to_account_info(),
+            MintTo {
+                mint: ctx.accounts.item_mint.to_account_info(),
+                to: ctx.accounts.destination.to_account_info(),
+                authority: ctx.accounts.mint_authority.to_account_info(),
+            },
+            seeds,
+        ),
+        1,
+    )
 }

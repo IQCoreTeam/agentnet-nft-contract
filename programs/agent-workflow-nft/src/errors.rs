@@ -22,4 +22,10 @@ pub enum ErrorCode {
     AlreadyOwned,
     #[msg("the provided fee treasury account does not match the protocol treasury")]
     WrongFeeTreasury,
+    #[msg("migration requires distinct source and destination wallets")]
+    SameMigrationOwner,
+    #[msg("migration requires exactly one source copy and an empty destination")]
+    InvalidMigrationBalance,
+    #[msg("migration supports only non-transferable, zero-decimal items")]
+    InvalidMigrationMint,
 }

@@ -1,5 +1,6 @@
 use super::accounts::ItemConfig;
 use anchor_lang::prelude::*;
+use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token_interface::{Mint, TokenAccount, TokenInterface};
 
 /// Seed prefix for an item's config PDA: ["item", item_mint].
@@ -123,4 +124,58 @@ pub struct BuyItem<'info> {
     pub token_program: Interface<'info, TokenInterface>,
     pub system_program: Program<'info, System>,
     // remaining_accounts: the buyer's skill token accounts, one per required skill.
+}
+
+/// A proposed, holder-approved exception to non-transferability, not human recovery proof.
+#[derive(Accounts)]
+pub struct MigrateItem<'info> {
+    #[account(mut)]
+    pub payer: Signer<'info>,
+    pub owner: Signer<'info>,
+    pub recipient: Signer<'info>,
+    #[account(
+        seeds = [ITEM_SEED, item_mint.key().as_ref()],
+        bump = config.bump,
+        has_one = item_mint,
+    )]
+    pub config: Account<'info, ItemConfig>,
+    #[account(mut, mint::token_program = token_program)]
+    pub item_mint: InterfaceAccount<'info, Mint>,
+    /// CHECK: only the existing per-item PDA may authorize replacement issuance.
+    #[account(seeds = [MINT_AUTH_SEED, item_mint.key().as_ref()], bump)]
+    pub mint_authority: UncheckedAccount<'info>,
+    #[account(
+        mut,
+        associated_token::mint = item_mint,
+        associated_token::authority = owner,
+        associated_token::token_program = token_program,
+    )]
+    pub source: InterfaceAccount<'info, TokenAccount>,
+    #[account(
+        init_if_needed,
+        payer = payer,
+        associated_token::mint = item_mint,
+        associated_token::authority = recipient,
+        associated_token::token_program = token_program,
+    )]
+    pub destination: InterfaceAccount<'info, TokenAccount>,
+    #[account(address = anchor_spl::token_2022::ID)]
+    pub token_program: Interface<'info, TokenInterface>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct RotateCreator<'info> {
+    pub creator: Signer<'info>,
+    pub new_creator: Signer<'info>,
+    pub item_mint: InterfaceAccount<'info, Mint>,
+    #[account(
+        mut,
+        seeds = [ITEM_SEED, item_mint.key().as_ref()],
+        bump = config.bump,
+        has_one = item_mint,
+        has_one = creator,
+    )]
+    pub config: Account<'info, ItemConfig>,
 }
